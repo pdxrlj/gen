@@ -296,26 +296,27 @@ func pullRelationShip(cache map[string][]field.Relation, relationships []*schema
 	}
 	result := make([]field.Relation, len(relationships))
 
-	for _, relationship := range relationships {
-		varType := strings.TrimLeft(relationship.Field.FieldType.String(), "[]*")
-		_, ok := cache[varType]
-		if !ok {
-			cache[varType] = []field.Relation{}
-			childRelations := pullRelationShip(cache, append(append(append(append(
-				make([]*schema.Relationship, 0, 4),
-				relationship.FieldSchema.Relationships.BelongsTo...),
-				relationship.FieldSchema.Relationships.HasOne...),
-				relationship.FieldSchema.Relationships.HasMany...),
-				relationship.FieldSchema.Relationships.Many2Many...),
-			)
-			cache[varType] = childRelations
-		}
-	}
-
+	// 为每个关联独立处理子关联，避免共享缓存导致的路径污染
 	for i, relationship := range relationships {
 		varType := strings.TrimLeft(relationship.Field.FieldType.String(), "[]*")
-		cached := cache[varType]
-		result[i] = *field.NewRelationWithType(field.RelationshipType(relationship.Type), relationship.Name, varType, cached...)
+		
+		// 使用独立的缓存处理每个关联的子关联
+		// 不再共享子关联的缓存结果，确保每个关联都有独立的 childRelations
+		childCache := make(map[string][]field.Relation)
+		childRelations := pullRelationShip(childCache, append(append(append(append(
+			make([]*schema.Relationship, 0, 4),
+			relationship.FieldSchema.Relationships.BelongsTo...),
+			relationship.FieldSchema.Relationships.HasOne...),
+			relationship.FieldSchema.Relationships.HasMany...),
+			relationship.FieldSchema.Relationships.Many2Many...),
+		)
+		
+		// 缓存结果用于后续可能的引用（保持原有行为）
+		if _, ok := cache[varType]; !ok {
+			cache[varType] = childRelations
+		}
+
+		result[i] = *field.NewRelationWithType(field.RelationshipType(relationship.Type), relationship.Name, varType, childRelations...)
 	}
 	return result
 }
